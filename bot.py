@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import uuid
 import logging
@@ -42,27 +42,20 @@ def is_admin(user_id: int) -> bool:
         return True
     return user_id in ADMIN_IDS
 
+def is_banner_valid() -> bool:
+    return os.path.exists(BANNER_PATH) and os.path.getsize(BANNER_PATH) > 500
+
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     text = (
-        "👋 <b>Привіт! Я бот для вставки анімованого банера у відео.</b>\n\n"
-        "🎬 <b>Як це працює:</b>\n"
-        "1. Надішліть мені відео (як відео, файл або анімацію).\n"
-        "2. Я автоматично вирахую таймінг:\n"
-        "   • Якщо відео &lt; 60 сек — банер буде рівно <b>посередині</b>.\n"
-        "   • Якщо відео &ge; 60 сек — банер з'явиться на <b>20-й секунді</b>.\n"
-        "3. На моменті банера головне відео <b>призупиняється</b> (кадр завмирає), а банер програється зі своїм звуком поверх нього.\n"
-        "4. Після завершення банера головне відео продовжує грати далі!\n\n"
-        "⚙️ <i>Для оновлення банера надішліть відео з підписом /setbanner або зробіть Reply на відео з текстом /setbanner</i>"
-    )
-    await message.answer(text)
-
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
-    text = (
-        "📖 <b>Допомога:</b>\n"
-        "• Надішліть будь-яке відео у чат для обробки.\n"
-        "• Для оновлення банера: надішліть відео з підписом <code>/setbanner</code> або дайте відповідь (Reply) командою <code>/setbanner</code> на надіслане відео."
+        "👋 <b>Привіт! Я бот для швидкої вставки анімованого банера у відео.</b>\n\n"
+        "⚡ <b>Як це працює:</b>\n"
+        "1. Надішліть відео у чат.\n"
+        "2. Бот автоматично вставить банер з паузою основного відео:\n"
+        "   • Відео &lt; 60 сек $\\rightarrow$ банер <b>посередині</b>.\n"
+        "   • Відео &ge; 60 сек $\\rightarrow$ банер на <b>20-й секунді</b>.\n\n"
+        "📹 <b>Оновлення банера:</b>\n"
+        "Надішліть відео банера з текстом <code>/setbanner</code> або зробіть Reply на відео з командою <code>/setbanner</code>."
     )
     await message.answer(text)
 
@@ -79,7 +72,7 @@ async def cmd_setbanner_command(message: Message):
             await save_new_banner(message, video_file)
             return
             
-    await message.answer("📹 Надішліть відео банера з підписом <code>/setbanner</code> або зробіть <b>Reply (Відповісти)</b> на відео з командою <code>/setbanner</code>.")
+    await message.answer("📹 Надішліть MP4-відео банера з текстом підпису <code>/setbanner</code> або зробіть <b>Reply (Відповісти)</b> на відео з текстом <code>/setbanner</code>.")
 
 async def save_new_banner(message: Message, video_file):
     status_msg = await message.answer("⏳ Завантажую та оновлюю банер...")
@@ -87,7 +80,12 @@ async def save_new_banner(message: Message, video_file):
         file_info = await bot.get_file(video_file.file_id)
         await bot.download_file(file_info.file_path, BANNER_PATH)
         banner_info = get_media_info(BANNER_PATH)
-        await status_msg.edit_text(f"✅ <b>Банер успішно збережено!</b>\nТривалість банера: <b>{banner_info['duration']:.2f} сек.</b>\nРоздільна здатність: {banner_info['width']}x{banner_info['height']}")
+        await status_msg.edit_text(
+            f"✅ <b>Банер успішно встановлено!</b>\n"
+            f"• Тривалість: <b>{banner_info['duration']:.2f} сек</b>\n"
+            f"• Роздільна здатність: <b>{banner_info['width']}x{banner_info['height']}</b>\n\n"
+            f"Тепер можете надсилати відео для обробки!"
+        )
     except Exception as e:
         logger.exception("Error updating banner")
         await status_msg.edit_text(f"❌ Помилка оновлення банера: {e}")
@@ -111,10 +109,14 @@ async def handle_media(message: Message):
         await save_new_banner(message, video_file)
         return
 
-    if not os.path.exists(BANNER_PATH) or os.path.getsize(BANNER_PATH) == 0:
+    # Перевірка наявності банера перед початком
+    if not is_banner_valid():
         await message.answer(
-            "⚠️ <b>Файл банера ще не завантажено!</b>\n\n"
-            "Будь ласка, надішліть відео банера з підписом <code>/setbanner</code> або зробіть Reply на відео з текстом <code>/setbanner</code>."
+            "⚠️ <b>Файл банера ще не встановлено або він порожній!</b>\n\n"
+            "Щоб встановити банер:\n"
+            "1. Надішліть сюди відео банера з підписом <code>/setbanner</code>\n"
+            "   <i>або</i>\n"
+            "2. Зробіть Reply (Відповісти) на вже надіслане відео банера з текстом <code>/setbanner</code>."
         )
         return
 
@@ -122,7 +124,7 @@ async def handle_media(message: Message):
     input_path = TEMP_DIR / f"input_{req_id}.mp4"
     output_path = TEMP_DIR / f"output_{req_id}.mp4"
     
-    status_msg = await message.answer("📥 Завантажую ваше відео...")
+    status_msg = await message.answer("📥 Завантажую відео...")
     
     try:
         file_info = await bot.get_file(video_file.file_id)
@@ -133,20 +135,21 @@ async def handle_media(message: Message):
         insert_time = calculate_insertion_time(dur)
         
         await status_msg.edit_text(
-            f"⚙️ <b>Обробка відео...</b>\n"
-            f"• Тривалість відео: <b>{dur:.1f} сек</b>\n"
+            f"⚡ <b>Ультрашвидка обробка...</b>\n"
+            f"• Тривалість: <b>{dur:.1f} сек</b>\n"
             f"• Пауза та банер на: <b>{insert_time:.1f} сек</b>\n\n"
-            f"⏳ Зачекайте декілька секунд..."
+            f"⏳ Обробляємо..."
         )
         
+        # Обробка відео через оптимізований FFmpeg
         await process_video_with_banner(str(input_path), BANNER_PATH, str(output_path))
         
-        await status_msg.edit_text("📤 Відео оброблено! Відправляю у чат...")
+        await status_msg.edit_text("📤 Готово! Відправляю відео...")
         
         final_video = FSInputFile(str(output_path))
         await message.answer_video(
             video=final_video,
-            caption="🎬 <b>Ваше відео готове!</b>\nБанер накладено з ефектом паузи головного відео."
+            caption="🎬 <b>Ваше відео готове!</b>"
         )
         await status_msg.delete()
         
@@ -162,7 +165,7 @@ async def handle_media(message: Message):
                     pass
 
 async def handle_ping(request):
-    return web.Response(text="Bot is running OK!")
+    return web.Response(text="OK")
 
 async def start_web_server():
     port = int(os.getenv("PORT", 10000))
@@ -173,10 +176,10 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info(f"Health-check веб-сервер запущено на порту {port}")
+    logger.info(f"Health-check server running on port {port}")
 
 async def main():
-    logger.info("Запуск бота та веб-сервера...")
+    logger.info("Starting bot and healthcheck server...")
     await start_web_server()
     await dp.start_polling(bot)
 
