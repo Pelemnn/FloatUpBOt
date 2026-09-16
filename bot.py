@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import uuid
 import logging
@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from aiohttp import web
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 
@@ -26,19 +26,14 @@ API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 
 if not BOT_TOKEN:
-    print("ПОМИЛКА: BOT_TOKEN не знайдено в змінних середовища!")
+    logger.error("BOT_TOKEN не знайдено!")
     sys.exit(1)
 
 if not API_ID or not API_HASH:
-    print("ПОМИЛКА: API_ID або API_HASH не знайдено! Отримайте їх на https://my.telegram.org")
+    logger.error("API_ID або API_HASH не знайдено!")
     sys.exit(1)
 
-try:
-    API_ID = int(API_ID)
-except ValueError:
-    print("ПОМИЛКА: API_ID має бути числовим значенням!")
-    sys.exit(1)
-
+API_ID = int(API_ID)
 BANNER_PATH = os.getenv("BANNER_PATH", "banner.mp4")
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "temp_processing"))
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,28 +57,33 @@ def is_admin(user_id: int) -> bool:
 def is_banner_valid() -> bool:
     return os.path.exists(BANNER_PATH) and os.path.getsize(BANNER_PATH) > 500
 
-@app.on_message(filters.command("start") & filters.private)
+@app.on_message(filters.command("start"))
 async def cmd_start(client: Client, message: Message):
     text = (
-        "👋 <b>Привіт! Я бот для вставки анімованого банера у відео (з підтримкою файлів до 2 ГБ!).</b>\n\n"
+        "👋 <b>Привіт! Я бот для вставки анімованого банера у відео (файли до 2 ГБ).</b>\n\n"
         "⚡ <b>Як це працює:</b>\n"
-        "1. Надішліть будь-яке відео у чат (підтримуються великі файли до 2 ГБ).\n"
-        "2. Бот автоматично вставить банер з паузою основного відео:\n"
+        "1. Надішліть будь-яке відео у чат.\n"
+        "2. Бот автоматично вставить банер з паузою:\n"
         "   • Відео &lt; 60 сек ➔ банер <b>посередині</b>.\n"
         "   • Відео &ge; 60 сек ➔ банер на <b>20-й секунді</b>.\n\n"
         "📹 <b>Оновлення банера:</b>\n"
-        "Надішліть відео банера з підписом <code>/setbanner</code> або дайте відповідь (Reply) на відео з командою <code>/setbanner</code>."
+        "Надішліть відео банера з текстом <code>/setbanner</code> або зробіть Reply з текстом <code>/setbanner</code>."
     )
     await message.reply_text(text)
 
-@app.on_message(filters.command("help") & filters.private)
-async def cmd_help(client: Client, message: Message):
-    text = (
-        "📖 <b>Допомога:</b>\n"
-        "• Надішліть будь-яке відео до 2 ГБ у чат для обробки.\n"
-        "• Для оновлення банера: надішліть відео з підписом <code>/setbanner</code> або зробіть Reply на відео з текстом <code>/setbanner</code>."
-    )
-    await message.reply_text(text)
+@app.on_message(filters.command("setbanner"))
+async def cmd_setbanner(client: Client, message: Message):
+    user_id = message.from_user.id if message.from_user else 0
+    if not is_admin(user_id):
+        await message.reply_text("⛔ У вас немає прав для зміни банера.")
+        return
+
+    reply = message.reply_to_message
+    if reply and (reply.video or reply.animation or reply.document):
+        await save_new_banner(message, reply)
+        return
+
+    await message.reply_text("📹 Надішліть відео банера з текстом <code>/setbanner</code> у підписі або зробіть <b>Reply (Відповісти)</b> на відео з текстом <code>/setbanner</code>.")
 
 async def save_new_banner(message: Message, media_msg: Message):
     status_msg = await message.reply_text("⏳ Завантажую та оновлюю банер...")
@@ -106,33 +106,22 @@ async def save_new_banner(message: Message, media_msg: Message):
         logger.exception("Error saving banner")
         await status_msg.edit_text(f"❌ Помилка оновлення банера: {e}")
 
-@app.on_message(filters.command("setbanner") & filters.private)
-async def cmd_setbanner(client: Client, message: Message):
-    if not is_admin(message.from_user.id):
-        await message.reply_text("⛔ У вас немає прав для зміни банера.")
-        return
-
-    reply = message.reply_to_message
-    if reply and (reply.video or reply.animation or reply.document):
-        await save_new_banner(message, reply)
-        return
-
-    await message.reply_text("📹 Надішліть відео банера з текстом <code>/setbanner</code> у підписі або зробіть <b>Reply (Відповісти)</b> на відео з командою <code>/setbanner</code>.")
-
-@app.on_message((filters.video | filters.document | filters.animation) & filters.private)
+@app.on_message(filters.video | filters.document | filters.animation)
 async def handle_media(client: Client, message: Message):
+    user_id = message.from_user.id if message.from_user else 0
     caption = (message.caption or "").strip().lower()
     is_set_banner = "/setbanner" in caption
 
     if message.document:
         mime = message.document.mime_type or ""
-        if not ("video" in mime or "octet-stream" in mime or message.document.file_name.lower().endswith((".mp4", ".mov", ".avi", ".mkv"))):
+        fname = (message.document.file_name or "").lower()
+        if not ("video" in mime or "octet-stream" in mime or fname.endswith((".mp4", ".mov", ".avi", ".mkv"))):
             if not is_set_banner:
                 await message.reply_text("⚠️ Будь ласка, надішліть саме відеофайл.")
                 return
 
     if is_set_banner:
-        if not is_admin(message.from_user.id):
+        if not is_admin(user_id):
             await message.reply_text("⛔ У вас немає прав для оновлення банера.")
             return
         await save_new_banner(message, message)
@@ -162,12 +151,12 @@ async def handle_media(client: Client, message: Message):
             f"⚡ <b>Обробка відео...</b>\n"
             f"• Тривалість: <b>{dur:.1f} сек</b>\n"
             f"• Пауза та банер на: <b>{insert_time:.1f} сек</b>\n\n"
-            f"⏳ Працюємо через FFmpeg..."
+            f"⏳ FFmpeg обробка..."
         )
 
         await process_video_with_banner(input_path, BANNER_PATH, output_path)
 
-        await status_msg.edit_text("📤 Готово! Завантажую відео у чат...")
+        await status_msg.edit_text("📤 Готово! Завантажую результат у чат...")
 
         out_info = get_media_info(output_path)
 
@@ -193,7 +182,7 @@ async def handle_media(client: Client, message: Message):
                     pass
 
 async def handle_ping(request):
-    return web.Response(text="Bot is running OK (2GB MTProto Enabled)")
+    return web.Response(text="Bot is running OK (Pyrogram 2GB)")
 
 async def start_web_server():
     port = int(os.getenv("PORT", 10000))
@@ -207,11 +196,11 @@ async def start_web_server():
     logger.info(f"Health-check server running on port {port}")
 
 async def main():
-    logger.info("Starting Pyrogram bot with 2GB support...")
     await start_web_server()
     await app.start()
-    logger.info("Bot started successfully!")
-    await asyncio.Event().wait()
+    logger.info("Bot started and listening for messages...")
+    await idle()
+    await app.stop()
 
 if __name__ == "__main__":
     try:
