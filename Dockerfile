@@ -1,8 +1,8 @@
 ﻿FROM python:3.11-slim
 
-# Встановлюємо FFmpeg та залежності
+# Встановлюємо FFmpeg та утиліти
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl && \
+    apt-get install -y --no-install-recommends ffmpeg curl build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -126,10 +126,10 @@ def _sync_process_video(main_video_path: str, banner_video_path: str, output_pat
     else:
         filter_parts.append(f"aevalsrc=0:d={remaining_dur:.3f}[a2]")
         
-    # 6. Швидка конкатенація
+    # 6. Конкатенація
     filter_parts.append("[v1][a1][v_banner][a_banner][v2][a2]concat=n=3:v=1:a=1[outv][outa]")
     
-    # Ультрашвидкі параметри рендерингу (ultrafast preset + багатопотоковість)
+    # Стиснення для збереження маленького розміру файлу (-crf 27) та швидкої передачі в Telegram
     cmd = [
         FFMPEG_BIN,
         "-y",
@@ -140,9 +140,9 @@ def _sync_process_video(main_video_path: str, banner_video_path: str, output_pat
         "-map", "[outv]",
         "-map", "[outa]",
         "-c:v", "libx264",
-        "-preset", "ultrafast",
+        "-preset", "veryfast",
         "-tune", "fastdecode",
-        "-crf", "26",
+        "-crf", "27",
         "-c:a", "aac",
         "-b:a", "128k",
         "-pix_fmt", "yuv420p",
