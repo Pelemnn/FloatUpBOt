@@ -21,23 +21,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger("telegram_banner_bot")
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
+raw_token = os.getenv("BOT_TOKEN", "").strip().strip("\"'").strip()
+raw_api_id = os.getenv("API_ID", "").strip().strip("\"'").strip()
+raw_api_hash = os.getenv("API_HASH", "").strip().strip("\"'").strip()
 
-if not BOT_TOKEN:
-    logger.critical("ПОМИЛКА: BOT_TOKEN не вказано в Environment Variables!")
+if not raw_token:
+    logger.critical("❌ ПОМИЛКА: BOT_TOKEN не знайдено!")
     sys.exit(1)
 
-if not API_ID or not API_HASH:
-    logger.critical("ПОМИЛКА: Для роботи з файлами > 20 МБ потрібні API_ID та API_HASH з https://my.telegram.org!")
+if not raw_api_id or not raw_api_hash:
+    logger.critical("❌ ПОМИЛКА: API_ID або API_HASH відсутні в Environment Variables на Render!")
     sys.exit(1)
 
 try:
-    API_ID = int(API_ID)
-except ValueError:
-    logger.critical("ПОМИЛКА: API_ID має бути числом!")
+    API_ID = int(raw_api_id)
+    API_HASH = str(raw_api_hash)
+    BOT_TOKEN = str(raw_token)
+except Exception as e:
+    logger.critical(f"❌ ПОМИЛКА формату API_ID (має бути тільки число): {e}")
     sys.exit(1)
+
+logger.info(f"Завантажені конфігурації: API_ID={API_ID}, API_HASH={API_HASH[:4]}...{API_HASH[-4:]}, BOT_TOKEN={BOT_TOKEN[:6]}...{BOT_TOKEN[-4:]}")
 
 BANNER_PATH = os.getenv("BANNER_PATH", "banner.mp4")
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "temp_processing"))
@@ -45,14 +49,13 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_IDS = [int(i.strip()) for i in os.getenv("ADMIN_IDS", "").split(",") if i.strip().isdigit()]
 
-# Створюємо Pyrogram клієнт для необмеженого MTProto завантаження (до 2 ГБ)
 app = Client(
     name="banner_bot_session",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     parse_mode=ParseMode.HTML,
-    workdir=str(TEMP_DIR)
+    in_memory=True
 )
 
 def is_admin(user_id: int) -> bool:
@@ -65,15 +68,15 @@ def is_banner_valid() -> bool:
 
 @app.on_message(filters.command("start"))
 async def cmd_start(client: Client, message: Message):
-    logger.info(f"Команда /start від користувача {message.from_user.id if message.from_user else 'Unknown'}")
+    logger.info(f"Отримано /start від {message.from_user.id if message.from_user else 'Unknown'}")
     text = (
-        "👋 <b>Привіт! Я бот для вставки банера у відео (з підтримкою великих відео до 2 ГБ!).</b>\n\n"
+        "👋 <b>Привіт! Я бот для вставки анімованого банера у відео (файли 50+ МБ та до 2 ГБ!).</b>\n\n"
         "⚡ <b>Як це працює:</b>\n"
-        "1. Просто надішліть мені відео (50 МБ, 100 МБ чи навіть 1 ГБ).\n"
-        "2. Бот автоматично вставить банер <b>рівно посередині (час / 2)</b> з ефектом паузи головного відео.\n"
-        "3. Після банера головне відео продовжує грати далі!\n\n"
+        "1. Просто надішліть мені відео будь-якого розміру.\n"
+        "2. Бот вставить банер <b>рівно посередині (час / 2)</b> з ефектом паузи головного відео.\n"
+        "3. Після завершення банера головне відео продовжує грати далі!\n\n"
         "📹 <b>Зміна банера:</b>\n"
-        "Надішліть відео банера з текстом <code>/setbanner</code> або зробіть Reply з командою <code>/setbanner</code>."
+        "Надішліть відео банера з текстом <code>/setbanner</code> або зробіть Reply з текстом <code>/setbanner</code>."
     )
     await message.reply_text(text)
 
@@ -99,10 +102,10 @@ async def save_new_banner(message: Message, media_msg: Message):
         await media_msg.download(file_name=BANNER_PATH)
         banner_info = get_media_info(BANNER_PATH)
         await status_msg.edit_text(
-            f"✅ <b>Банер успішно встановлено!</b>\n"
+            f"✅ <b>Банер успішно збережено!</b>\n"
             f"• Тривалість: <b>{banner_info['duration']:.2f} сек</b>\n"
             f"• Роздільна здатність: <b>{banner_info['width']}x{banner_info['height']}</b>\n\n"
-            f"🚀 Тепер можете надсилати ваші 50+ МБ відео для обробки!"
+            f"🚀 Тепер надсилайте ваші відео для обробки!"
         )
     except Exception as e:
         logger.exception("Error saving banner")
@@ -154,10 +157,9 @@ async def handle_media(client: Client, message: Message):
     input_path = str(TEMP_DIR / f"input_{req_id}.mp4")
     output_path = str(TEMP_DIR / f"output_{req_id}.mp4")
 
-    status_msg = await message.reply_text("📥 <b>Завантажую велике відео (MTProto без обмеження 20 МБ)...</b>")
+    status_msg = await message.reply_text("📥 <b>Завантажую відео (MTProto без ліміту 20 МБ)...</b>")
 
     try:
-        # Завантажуємо відео будь-якого розміру (50 МБ, 100 МБ, 1 ГБ)
         await message.download(file_name=input_path)
 
         info = get_media_info(input_path)
@@ -173,7 +175,7 @@ async def handle_media(client: Client, message: Message):
 
         await process_video_with_banner(input_path, BANNER_PATH, output_path)
 
-        await status_msg.edit_text("📤 <b>Відео готове! Завантажую в Telegram...</b>")
+        await status_msg.edit_text("📤 <b>Відео готове! Відправляю у чат...</b>")
 
         out_info = get_media_info(output_path)
 
@@ -182,7 +184,7 @@ async def handle_media(client: Client, message: Message):
             duration=int(out_info["duration"]),
             width=out_info["width"],
             height=out_info["height"],
-            caption=f"🎬 <b>Відео успішно оброблено!</b>\n• Банер вставлено на <b>{insert_time:.1f} сек</b> (середина відео з ефектом паузи).",
+            caption=f"🎬 <b>Відео готове!</b>\n• Банер вставлено на <b>{insert_time:.1f} сек</b> (середина відео з ефектом паузи).",
             supports_streaming=True
         )
         await status_msg.delete()
@@ -198,16 +200,15 @@ async def handle_media(client: Client, message: Message):
                 except Exception:
                     pass
 
-# Відповідаємо на будь-який інший текст, щоб бот ніколи не мовчав
 @app.on_message(filters.text)
 async def handle_text(client: Client, message: Message):
     await message.reply_text(
-        "🎬 <b>Надішліть мені відео (навіть 50–500 МБ)</b>, і я автоматично вставлю банер рівно посередині з ефектом паузи!\n\n"
+        "🎬 <b>Надішліть мені відео будь-якого розміру</b>, і я вставлю банер рівно посередині з ефектом паузи!\n\n"
         "💡 <i>Для оновлення банера: надішліть відео з текстом /setbanner</i>"
     )
 
 async def handle_ping(request):
-    return web.Response(text="Bot is running OK (Pyrogram 2GB support)")
+    return web.Response(text="Bot is running OK (Pyrogram in_memory MTProto)")
 
 async def start_web_server():
     port = int(os.getenv("PORT", 10000))
@@ -221,10 +222,10 @@ async def start_web_server():
     logger.info(f"Health-check веб-сервер запущено на порту {port}")
 
 async def main():
-    logger.info("Запуск веб-сервера та Pyrogram бота...")
     await start_web_server()
+    logger.info("Підключення Pyrogram до Telegram MTProto...")
     await app.start()
-    logger.info("🚀 БОТ УСПІШНО ЗАПУЩЕНИЙ ТА ГОТОВИЙ ПРИЙМАТИ ФАЙЛИ БУДЬ-ЯКОГО РОЗМІРУ (ДО 2 ГБ)!")
+    logger.info("🚀 БОТ УСПІШНО ПІДКЛЮЧИВСЯ ТА СЛУХАЄ ПОВІДОМЛЕННЯ!")
     await idle()
     await app.stop()
 
