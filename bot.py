@@ -38,10 +38,8 @@ try:
     API_HASH = str(raw_api_hash)
     BOT_TOKEN = str(raw_token)
 except Exception as e:
-    logger.critical(f"❌ ПОМИЛКА формату API_ID (має бути тільки число): {e}")
+    logger.critical(f"❌ ПОМИЛКА формату API_ID (має бути число): {e}")
     sys.exit(1)
-
-logger.info(f"Завантажені конфігурації: API_ID={API_ID}, API_HASH={API_HASH[:4]}...{API_HASH[-4:]}, BOT_TOKEN={BOT_TOKEN[:6]}...{BOT_TOKEN[-4:]}")
 
 BANNER_PATH = os.getenv("BANNER_PATH", "banner.mp4")
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "temp_processing"))
@@ -70,11 +68,11 @@ def is_banner_valid() -> bool:
 async def cmd_start(client: Client, message: Message):
     logger.info(f"Отримано /start від {message.from_user.id if message.from_user else 'Unknown'}")
     text = (
-        "👋 <b>Привіт! Я бот для вставки анімованого банера у відео (файли 50+ МБ та до 2 ГБ!).</b>\n\n"
+        "👋 <b>Привіт! Я оновлений бот для вставки банера у відео (файли 50+ МБ та до 2 ГБ!).</b>\n\n"
         "⚡ <b>Як це працює:</b>\n"
         "1. Просто надішліть мені відео будь-якого розміру.\n"
         "2. Бот вставить банер <b>рівно посередині (час / 2)</b> з ефектом паузи головного відео.\n"
-        "3. Після завершення банера головне відео продовжує грати далі!\n\n"
+        "3. Після банера головне відео продовжує грати далі!\n\n"
         "📹 <b>Зміна банера:</b>\n"
         "Надішліть відео банера з текстом <code>/setbanner</code> або зробіть Reply з текстом <code>/setbanner</code>."
     )
@@ -169,7 +167,7 @@ async def handle_media(client: Client, message: Message):
         await status_msg.edit_text(
             f"⚡ <b>Обробка відео через FFmpeg...</b>\n"
             f"• Повна тривалість: <b>{dur:.1f} сек</b>\n"
-            f"• Вставка банера: <b>{insert_time:.1f} сек (рівно посередині)</b>\n\n"
+            f"• Вставка банера: <b>{insert_time:.1f} сек (середина відео)</b>\n\n"
             f"⏳ Обробляємо, зачекайте..."
         )
 
@@ -223,14 +221,15 @@ async def start_web_server():
 
 async def main():
     await start_web_server()
-    logger.info("Підключення Pyrogram до Telegram MTProto...")
-    await app.start()
-    logger.info("🚀 БОТ УСПІШНО ПІДКЛЮЧИВСЯ ТА СЛУХАЄ ПОВІДОМЛЕННЯ!")
-    await idle()
-    await app.stop()
+    logger.info("Підключення до Telegram MTProto...")
+    async with app:
+        logger.info("🚀 БОТ УСПІШНО ПІДКЛЮЧИВСЯ ТА СЛУХАЄ ПОВІДОМЛЕННЯ!")
+        await idle()
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот зупинений.")
